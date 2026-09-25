@@ -149,9 +149,6 @@ add_ac_branch!(IE_grid, 4108, 5916, 10.0)
 add_ac_branch!(IE_grid, 4111, 5928, 10.0)
 add_ac_branch!(IE_grid, 4103, 5897, 10.0)
 
-open(joinpath(dirname(@__DIR__), "data", "IE_grid.json"), "w") do io
-    JSON.print(io, IE_grid, 4)
-end
 
 #=
 for (b_id, b) in IE_grid["bus"]
@@ -169,16 +166,22 @@ for (br_id,br) in IE_grid["branch"]
     br["angmin"] = -pi/2
     br["angmax"] = pi/2
 end
+#for (br_id,br) in IE_grid["branch"]
+#    br["rate_a"] = 99.99
+#end
+open(joinpath(dirname(@__DIR__), "data", "IE_NI_grid.json"), "w") do io
+    JSON.print(io, IE_grid, 4)
+end
 
 
-#############################
+############################# Testing OPF
 load = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "hourly_load_IE_26.json"))
-IE_grid_opf = _PM.parse_file(joinpath(dirname(@__DIR__), "data", "IE_grid.json"))
+IE_grid_opf = _PM.parse_file(joinpath(dirname(@__DIR__), "data", "IE_NI_grid.json"))
 timeseries = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "time_series_IE_26.json"))
 HVDC_flow = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "power_flow_IE_to_GB_26.json"))
 
 start_hour = 1
-end_hour = 24
+end_hour = 168
 actual_load = [load["$t"]["actual_load"] for t in start_hour:end_hour]
 Plots.plot(actual_load)
 unique_type = unique([g["type"] for (g_id, g) in IE_grid_opf["gen"]])
@@ -211,32 +214,16 @@ function hourly_opf(data,timeseries,type_res_timeseries,loadseries,start_hour,en
     return result
 end
 
-res_opf = hourly_opf(IE_grid,timeseries,"cap_factor_day_ahead_hourly",actual_load,start_hour,end_hour,ACPPowerModel,Ipopt.Optimizer)
-
-for (l_id,l) in IE_grid["load"]
-    if l["zone"] == "NI"
-        println("Load ID: $l_id, Load: $(l["pd"]) MW, $(l["powerportion"])")
-    end
+res_opf = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",actual_load,start_hour,end_hour,LPACCPowerModel,Ipopt.Optimizer)
+term_statuses = [res_opf["$t"]["primal_status"] for t in start_hour:end_hour]
+countmap(term_statuses)
+for t in start_hour:end_hour
+    delete!(res_opf["$t"],"objective_lb")
 end
 
-function replace_nan(x)
-    if x isa AbstractFloat && isnan(x)
-        return nothing
-    elseif x isa Dict
-        return Dict(k => replace_nan(v) for (k, v) in x)
-    elseif x isa AbstractArray
-        return [replace_nan(v) for v in x]
-    else
-        return x
-    end
+open(joinpath(dirname(@__DIR__), "results", "LPAC_OPF_no_HVDC_$(start_hour)_$(end_hour).json"), "w") do io
+    JSON.print(io, res_opf, 4)
 end
-
-res_opf_clean = replace_nan(res_opf)
-
-open(joinpath(dirname(@__DIR__), "results", "AC_OPF_no_HVDC_$(start_hour)_$(end_hour).json"), "w") do io
-    JSON.print(io, res_opf_clean, 4)
-end
-
 
 obj = [res_opf["$t"]["objective"] for t in start_hour:end_hour]
 primal_status = [res_opf["$t"]["primal_status"] for t in start_hour:end_hour]
@@ -261,7 +248,7 @@ gas_gen = gen_per_type["Gas"]
 oil_gen = gen_per_type["Oil"]
 hydro_gen = gen_per_type["Hydro Run-of-River"]
 import_HVDC = [HVDC_flow["$t"]["from_GB_to_IE"] for t in 1:168]
-gas_gen_corrected = gas_gen[1:168]*100 .- import_HVDC 
+gas_gen_corrected = gas_gen[start_hour:end_hour]*100 .- import_HVDC 
 
 Plots.plot(biomass_gen*100, label = "Biomass", color = :green, legend = :outertopright, xlabel = "Timestep [-]", ylabel = "Generation [MW]")
 Plots.plot!(wind_gen*100, label = "Wind", color = :blue, legend = :outertopright, xlabel = "Timestep [-]", ylabel = "Generation [MW]")
@@ -269,10 +256,8 @@ Plots.plot!(gas_gen_corrected, label = "Gas", color = :red, legend = :outertopri
 Plots.plot!(oil_gen*100, label = "Oil", color = :orange, legend = :outertopright, xlabel = "Timestep [-]", ylabel = "Generation [MW]")
 Plots.plot!(hydro_gen*100, label = "Hydro", color = :purple, legend = :outertopright, xlabel = "Timestep [-]", ylabel = "Generation [MW]")
 
+### Comparing results with data we got
 data_IE_hackathon = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "gen_IE.json"))
-data_IE_hackathon["1"]["minute"]
-
-
 
 biomass_gen_hack = [data_IE_hackathon["$t"]["type"]["Fossil Peat"] for t in 1:length(data_IE_hackathon) if data_IE_hackathon["$t"]["minute"] == "00"]
 wind_gen_hack  = [data_IE_hackathon["$t"]["type"]["Wind Onshore"] for t in 1:length(data_IE_hackathon) if data_IE_hackathon["$t"]["minute"] == "00"]
