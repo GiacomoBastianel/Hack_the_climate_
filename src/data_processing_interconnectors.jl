@@ -31,6 +31,8 @@ function compute_power_flow(dict_data)
             dict_pf["$count_"]["day"] = timestamp_str[1:2]
             dict_pf["$count_"]["month"] = timestamp_str[4:5]
             dict_pf["$count_"]["year"] = timestamp_str[7:10]
+            dict_pf["$count_"]["hour"] = timestamp_str[12:13]
+            dict_pf["$count_"]["minute"] = timestamp_str[15:16]
             dict_pf["$count_"]["from_IE_to_GB"] = parse(Float64, dict_data[t,4])
         elseif t == 2
             count_ += 1
@@ -49,6 +51,8 @@ function compute_power_flow(dict_data)
                 dict_pf["$new_timestep"]["day"] = timestamp_str[1:2]
                 dict_pf["$new_timestep"]["month"] = timestamp_str[4:5]
                 dict_pf["$new_timestep"]["year"] = timestamp_str[7:10]
+                dict_pf["$new_timestep"]["hour"] = timestamp_str[12:13]
+                dict_pf["$new_timestep"]["minute"] = timestamp_str[15:16]
                 dict_pf["$new_timestep"]["from_IE_to_GB"] = parse(Float64, dict_data[t,4])
             end
         end

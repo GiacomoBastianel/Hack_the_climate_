@@ -4,13 +4,13 @@ using Plots
 
 # Load the grid data
 const DATA_DIR = joinpath(dirname(@__DIR__), "data")
-grid_file = joinpath(DATA_DIR, "European_grid_no_nseh.json")
+grid_file = joinpath(DATA_DIR, "IE_grid.json")
 grid_data = JSON.parsefile(grid_file)
 
 # Extract Irish buses (zone == "IE")
 IE_buses = Dict()
 for (bus_id, bus_info) in grid_data["bus"]
-    if bus_info["zone"] == "IE"
+    if bus_info["zone"] == "IE" || bus_info["zone"] == "NI"
         IE_buses[bus_id] = bus_info
     end
 end
@@ -76,6 +76,8 @@ println("Grid map saved to: $output_file")
 # Also display the plot
 display(p)
 
+
+
 # Print some statistics
 println("\nGrid Statistics:")
 println("  Latitude range: $(minimum(bus_lats)) to $(maximum(bus_lats))")
@@ -138,3 +140,9 @@ savefig(p2, output_file2)
 println("Voltage-colored grid map saved to: $output_file2")
 
 display(p2)
+
+for (b_id, b) in IE_grid["bus"]
+    if b["base_kv"] == 275 && b["lon"] > -7 && b["lon"] < -6 && b["lat"] < 54 && b["lat"] > 53
+        println("Bus ID: $b_id, Lat: $(b["lat"]), Lon: $(b["lon"])")
+    end
+end

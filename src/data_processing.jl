@@ -181,7 +181,7 @@ Plots.plot!(1:length(generation_vectors_GB["Fossil Oil"]), generation_vectors_GB
 ## Load data processing
 load   = CSV.read(joinpath(DATA_DIR, "load.csv"), DataFrame)
 
-load_IE = Dict{String,Any}()
+~ = Dict{String,Any}()
 load_GB = Dict{String,Any}()
 count_IE = 0
 count_GB = 0
