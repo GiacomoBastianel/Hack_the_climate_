@@ -324,8 +324,8 @@ function hourly_opf(data,timeseries,type_res_timeseries,loadseries,HVDC_flow,sta
     return result
 end
 
-res_opf_lpac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",actual_load,HVDC_flow,start_hour,end_hour,LPACCPowerModel,Ipopt.Optimizer)
-res_opf_ac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",actual_load,HVDC_flow,start_hour,end_hour,ACPPowerModel,Ipopt.Optimizer)
+res_opf_lpac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",load,HVDC_flow,start_hour,end_hour,LPACCPowerModel,Ipopt.Optimizer)
+res_opf_ac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",load,HVDC_flow,start_hour,end_hour,ACPPowerModel,Ipopt.Optimizer)
 
 term_statuses_lpac = [res_opf_lpac["$t"]["primal_status"] for t in start_hour:end_hour]
 term_statuses = [res_opf_ac["$t"]["primal_status"] for t in start_hour:end_hour]
