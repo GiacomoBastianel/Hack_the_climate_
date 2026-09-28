@@ -26,6 +26,7 @@ _PMACDC.process_additional_data!(EU_grid)
 function isolate_grid(EU_grid, isolated_zones)
     isolated_grid = deepcopy(EU_grid)
     isolated_grid["bus"] = Dict{String,Any}()
+    isolated_grid["dcline"] = Dict{String,Any}()
     isolated_grid["branch"] = Dict{String,Any}()
     isolated_grid["gen"] = Dict{String,Any}()
     isolated_grid["load"] = Dict{String,Any}()
@@ -128,10 +129,10 @@ function add_ac_branch!(grid_data, fbus, tbus, power_rating; status = 1, r = 0.0
     grid_data["branch"]["$br_idx"]["transformer"] = false
     grid_data["branch"]["$br_idx"]["type"] = "AC line"
     grid_data["branch"]["$br_idx"]["tap"] = 1.0
-    grid_data["branch"]["$br_idx"]["g_to"] = 1.0
-    grid_data["branch"]["$br_idx"]["g_fr"] = 1.0
-    grid_data["branch"]["$br_idx"]["b_fr"] = 10.0
-    grid_data["branch"]["$br_idx"]["b_to"] = 10.0
+    grid_data["branch"]["$br_idx"]["g_to"] = 0.0
+    grid_data["branch"]["$br_idx"]["g_fr"] = 0.0
+    grid_data["branch"]["$br_idx"]["b_fr"] = 0.0
+    grid_data["branch"]["$br_idx"]["b_to"] = 0.0
     grid_data["branch"]["$br_idx"]["base_kv"] = 220
     grid_data["branch"]["$br_idx"]["source_id"] = []
     push!(grid_data["branch"]["$br_idx"]["source_id"],"branch")
@@ -139,8 +140,8 @@ function add_ac_branch!(grid_data, fbus, tbus, power_rating; status = 1, r = 0.0
     grid_data["branch"]["$br_idx"]["br_status"] = 1
     grid_data["branch"]["$br_idx"]["shift"] = 0.0
     grid_data["branch"]["$br_idx"]["ratio"] = 1
-    grid_data["branch"]["$br_idx"]["angmin"] = - 1.0472
-    grid_data["branch"]["$br_idx"]["angmax"] = 1.0472
+    grid_data["branch"]["$br_idx"]["angmin"] = - 0.5236
+    grid_data["branch"]["$br_idx"]["angmax"] = 0.5236
     
     return br_idx
 end
@@ -149,23 +150,22 @@ add_ac_branch!(IE_grid, 4129, 5923, 10.0)
 add_ac_branch!(IE_grid, 4108, 5916, 10.0)
 add_ac_branch!(IE_grid, 4111, 5928, 10.0)
 add_ac_branch!(IE_grid, 4103, 5897, 10.0)
+add_ac_branch!(IE_grid, 4132, 4106, 10.0)
 
-
-#=
 for (b_id, b) in IE_grid["bus"]
-    if b["base_kv"] == 110 && b["lon"] > -8 && b["lon"] < -7.2 && b["lat"] < 55 && b["lat"] > 54.5
+    if b["base_kv"] == 110 && b["lon"] < -8 && b["lon"] > -8.5 && b["lat"] < 54.8 && b["lat"] > 54.2
         println("Bus ID: $b_id, Lat: $(b["lat"]), Lon: $(b["lon"])")
     end
 end
-=#
+
 
 for (b_id, b) in IE_grid["bus"]
     b["vmin"] = 0.9
-    b["vmax"] = 1.1
+    b["vmax"] = 1.05
 end
 for (br_id,br) in IE_grid["branch"]
-    br["angmin"] = -pi/3
-    br["angmax"] = pi/3
+    br["angmin"] = -pi/6
+    br["angmax"] = pi/6
 end
 
 function add_generator!(grid_data, gen_bus, power_rating, gen_zone, gen_type, gen_costs; gen_id = nothing, status = 1)     
@@ -235,39 +235,61 @@ open(joinpath(dirname(@__DIR__), "data", "IE_NI_grid_with_HVDC.json"), "w") do i
 end
 
 
-############################# Testing OPF
+############################# Uploading data 
 load = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "hourly_load_IE_26.json"))
-IE_grid_opf = _PM.parse_file(joinpath(dirname(@__DIR__), "data", "IE_NI_grid.json"))
+
+
+IE_grid_opf = _PM.parse_file(joinpath(dirname(@__DIR__), "data", "IE_NI_grid_with_HVDC.json"))
 timeseries = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "time_series_IE_26.json"))
 HVDC_flow = JSON.parsefile(joinpath(dirname(@__DIR__), "data", "power_flow_IE_to_GB_26.json"))
 
-start_hour = 1
-end_hour = 720
+load_may = Dict{String,Any}()
+for i in 1:length(load)
+    if load["$i"]["month"] == "05"
+        load_may["$i"] = deepcopy(load["$i"])
+    end
+end
+maximum(keys(load_may))
+# -> minimum = 2880 -> start_hour
+# -> maximum = 3623 -> end_hour
+
+load["2880"]
+load["3623"]
+
+start_hour = 2880
+end_hour = 3623
 actual_load = [load["$t"]["actual_load"] for t in start_hour:end_hour]
 Plots.plot(actual_load)
 unique_type = unique([g["type"] for (g_id, g) in IE_grid_opf["gen"]])
 
-function hourly_opf(data,timeseries,type_res_timeseries,loadseries,HVDC_flow,start_hour,end_hour,formulation,solver)
+######################## Running OPF
+function hourly_opf(data,timeseries,type_res_timeseries,loadseries,HVDC_flow,start_hour,end_hour,formulation,solver,hour_correcting_factor)
     result = Dict{String,Any}()
-    for t in start_hour:end_hour
+    for t in (start_hour-hour_correcting_factor):(end_hour-hour_correcting_factor)
         println("Running OPF for hour $t")
         hourly_grid = deepcopy(data)
         for (load_id, load) in hourly_grid["load"]
             if !haskey(load,"type")
                 if load["zone"] == "IE"
                     load["pd"] = loadseries[t]/10^2*load["powerportion"]
-                    load["qd"] = loadseries[t]*0.05/10^2*load["powerportion"]
+                    load["qd"] = loadseries[t]*0.33/10^2*load["powerportion"]
                 elseif load["zone"] == "NI"
                     load["pd"] = loadseries[t]*0.15/10^2*load["powerportion"]
-                    load["qd"] = loadseries[t]*0.05*0.15/10^2*load["powerportion"]
+                    load["qd"] = loadseries[t]*0.33*0.15/10^2*load["powerportion"]
                 end
             end
         end
         for (g_id,g) in hourly_grid["gen"]
             if g["type"] == "Onshore"
-                g["pmax"] = g["pmax"]*timeseries[type_res_timeseries][t]*50/58
-            elseif g["type"] == "Offshore"
-                g["pmax"] = 0
+                if g["zone"] == "IE"
+                    #println("Gen $g_id is in Ireland")
+                    g["pmax"] = g["pmax"]*timeseries[type_res_timeseries][t]*50/58
+                elseif g["zone"] == "NI"
+                    #println("Gen $g_id is in Northern Ireland")
+                    g["pmax"] = g["pmax"]*timeseries[type_res_timeseries][t]*13.92/20.0 
+                end
+                elseif g["type"] == "Offshore"
+            g["pmax"] = 0
             elseif g["type"] == "Solar PV"
                 g["pmax"] = 0
             end
@@ -297,47 +319,62 @@ function hourly_opf(data,timeseries,type_res_timeseries,loadseries,HVDC_flow,sta
                 end
             end
         end
-        result["$t"] = _PM.solve_opf(hourly_grid, formulation, solver)
+        result["$t"] = _PM.solve_opf(hourly_grid, formulation, solver;setting = Dict("output" => Dict("duals" => true)))
     end
     return result
 end
 
-res_opf_parsed = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",actual_load,HVDC_flow,start_hour,end_hour,LPACCPowerModel,Ipopt.Optimizer)
-#res_opf = hourly_opf(IE_grid,timeseries,"cap_factor_day_ahead_hourly",actual_load,HVDC_flow,start_hour,end_hour,LPACCPowerModel,Ipopt.Optimizer)
+res_opf_lpac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",actual_load,HVDC_flow,start_hour,end_hour,LPACCPowerModel,Ipopt.Optimizer,(start_hour-1))
+res_opf_ac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",actual_load,HVDC_flow,start_hour,end_hour,ACPPowerModel,Ipopt.Optimizer,(start_hour-1))
 
-term_statuses_parsed = [res_opf_parsed["$t"]["primal_status"] for t in start_hour:end_hour]
+term_statuses_lpac = [res_opf_lpac["$t"]["primal_status"] for t in start_hour:end_hour]
+term_statuses = [res_opf_ac["$t"]["primal_status"] for t in start_hour:end_hour]
 
-#obj = [res_opf["$t"]["objective"] for t in start_hour:end_hour]
-obj_parsed = [res_opf_parsed["$t"]["objective"] for t in start_hour:end_hour]
+obj_ac = [res_opf_ac["$t"]["objective"] for t in start_hour:end_hour]
+obj_lpac = [res_opf_lpac["$t"]["objective"] for t in start_hour:end_hour]
 
-#obj_diff = [obj[t] - obj_parsed[t] for t in 1:length(obj)]
-#diff_perc = obj_diff./obj_parsed*100
-#plot(diff_perc, label = "Objective difference [%]", color = :blue, legend = :outertopright, xlabel = "Timestep [-]", ylabel = "Difference [%]")
-countmap(term_statuses_parsed)
+##### Saving data
+countmap(term_statuses_lpac)
 for t in start_hour:end_hour
-    delete!(res_opf_parsed["$t"],"objective_lb")
+    delete!(res_opf_lpac["$t"],"objective_lb")
+    delete!(res_opf_ac["$t"],"objective_lb")
 end
 
-open(joinpath(dirname(@__DIR__), "results", "LPAC_OPF_HVDC_$(start_hour)_$(end_hour).json"), "w") do io
-    JSON.print(io, res_opf_parsed, 4)
+results_folder_local = joinpath(dirname(@__DIR__), "results")
+results_folder = "/Users/giacomobastianel/Library/CloudStorage/OneDrive-KULeuven/Hack_the_climate/Results"
+open(joinpath(results_folder, "LPAC_OPF_HVDC_$(start_hour)_$(end_hour)_May.json"), "w") do io
+    JSON.print(io, res_opf_lpac, 4)
+end
+open(joinpath(results_folder, "AC_OPF_HVDC_$(start_hour)_$(end_hour)_May.json"), "w") do io
+    JSON.print(io, res_opf_ac, 4)
 end
 
-obj = [res_opf_parsed["$t"]["objective"] for t in start_hour:end_hour]
-primal_status = [res_opf_parsed["$t"]["primal_status"] for t in start_hour:end_hour]
+
+
+###############
+obj = [res_opf_lpac["$t"]["objective"] for t in start_hour:end_hour]
+primal_status = [res_opf_lpac["$t"]["primal_status"] for t in start_hour:end_hour]
 gen_per_type = Dict{String,Any}()
 for g in unique_type
     gen_per_type[g] = []
 end
 
-string(res_opf_parsed["1"]["primal_status"])
+installed_g_wind = 0
+for (g_id,g) in IE_grid_opf["gen"]
+    if g["type"] == "Onshore" && g["zone"] == "NI"
+        println("gen $g_id, pmax $(g["pmax"])")
+        installed_g_wind += g["pmax"]
+    end
+end
+
 
 for t in start_hour:end_hour
-    if string(res_opf_parsed["$t"]["primal_status"]) == "FEASIBLE_POINT"
+    if string(res_opf_lpac["$t"]["primal_status"]) == "FEASIBLE_POINT"
         for type in unique_type
             gen_type = 0
             for (g_id,g) in IE_grid_opf["gen"]
-                if g["type"] == type && haskey(res_opf_parsed["$t"]["solution"]["gen"],g_id)
-                    gen_type += res_opf_parsed["$t"]["solution"]["gen"][g_id]["pg"]
+                if g["type"] == type && haskey(res_opf_lpac["$t"]["solution"]["gen"],g_id)
+                    gen_type += res_opf_lpac["$t"]["solution"]["gen"][g_id]["pg"]
                 end
             end
             push!(gen_per_type[type], gen_type)
@@ -394,3 +431,12 @@ IE_grid["gen"]["7502"]
 IE_grid["gen"]["7503"]
 IE_grid["gen"]["7504"]
 
+######################
+line_utilization = Dict{String,Any}()
+for (br_id,br) in IE_grid["branch"]
+    line_utilization["$br_id"] = []
+    for i in 1:168
+        push!(line_utilization["$br_id"], abs(res_opf_lpac["$i"]["solution"]["branch"][br_id]["pf"]./br["rate_a"]))
+    end
+end
+line_utilization
