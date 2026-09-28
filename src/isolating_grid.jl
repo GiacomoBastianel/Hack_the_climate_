@@ -265,17 +265,19 @@ unique_type = unique([g["type"] for (g_id, g) in IE_grid_opf["gen"]])
 ######################## Running OPF
 function hourly_opf(data,timeseries,type_res_timeseries,loadseries,HVDC_flow,start_hour,end_hour,formulation,solver,hour_correcting_factor)
     result = Dict{String,Any}()
-    for t in (start_hour-hour_correcting_factor):(end_hour-hour_correcting_factor)
+    for t in (start_hour):(end_hour)
         println("Running OPF for hour $t")
+        # lt is the hour t minus the correcting factor
+        lt = t - hour_correcting_factor
         hourly_grid = deepcopy(data)
         for (load_id, load) in hourly_grid["load"]
             if !haskey(load,"type")
                 if load["zone"] == "IE"
-                    load["pd"] = loadseries[t]/10^2*load["powerportion"]
-                    load["qd"] = loadseries[t]*0.33/10^2*load["powerportion"]
+                    load["pd"] = loadseries[lt]/10^2*load["powerportion"]
+                    load["qd"] = loadseries[lt]*0.33/10^2*load["powerportion"]
                 elseif load["zone"] == "NI"
-                    load["pd"] = loadseries[t]*0.15/10^2*load["powerportion"]
-                    load["qd"] = loadseries[t]*0.33*0.15/10^2*load["powerportion"]
+                    load["pd"] = loadseries[lt]*0.15/10^2*load["powerportion"]
+                    load["qd"] = loadseries[lt]*0.33*0.15/10^2*load["powerportion"]
                 end
             end
         end
@@ -329,6 +331,9 @@ res_opf_ac = hourly_opf(IE_grid_opf,timeseries,"cap_factor_day_ahead_hourly",act
 
 term_statuses_lpac = [res_opf_lpac["$t"]["primal_status"] for t in start_hour:end_hour]
 term_statuses = [res_opf_ac["$t"]["primal_status"] for t in start_hour:end_hour]
+
+countmap(term_statuses_lpac)
+countmap(term_statuses)
 
 obj_ac = [res_opf_ac["$t"]["objective"] for t in start_hour:end_hour]
 obj_lpac = [res_opf_lpac["$t"]["objective"] for t in start_hour:end_hour]
